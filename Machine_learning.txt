@@ -1,0 +1,73 @@
+# Introduction to Machine Learning
+
+## 1. What is Machine Learning?
+
+Machine Learning is a branch of Artificial Intelligence that enables computers to learn patterns from data and make predictions or decisions without being explicitly programmed for every task. Machine learning algorithms improve their performance by learning from experience and examples.
+
+For example, an email spam filter learns from previously labelled emails to identify whether a new email is spam or legitimate.
+
+## 2. Types of Machine Learning
+
+There are three major types of machine learning: supervised learning, unsupervised learning, and reinforcement learning.
+
+### Supervised Learning
+
+Supervised learning uses labelled training data. Each training example contains input features and a known output. The algorithm learns the relationship between inputs and outputs to predict results for new data.
+
+Examples include house price prediction, email spam detection, and disease classification.
+
+Common supervised learning algorithms include Linear Regression, Logistic Regression, Decision Trees, and Support Vector Machines.
+
+### Unsupervised Learning
+
+Unsupervised learning works with unlabelled data. The algorithm discovers hidden patterns, groups, or structures without predefined output labels.
+
+For example, a retail company can use customer segmentation to group customers according to their purchasing behaviour.
+
+Common unsupervised learning algorithms include K-Means Clustering, Hierarchical Clustering, and Principal Component Analysis.
+
+### Reinforcement Learning
+
+Reinforcement learning is a learning approach in which an agent interacts with an environment and receives rewards or penalties for its actions. The agent learns a strategy that maximizes cumulative rewards over time.
+
+Applications include robotics, game-playing systems, and autonomous navigation.
+
+## 3. Training and Testing Data
+
+A machine learning dataset is commonly divided into training data and testing data.
+
+Training data is used to teach the model to recognize patterns. Testing data is used to evaluate how well the trained model performs on previously unseen examples.
+
+A model that performs well on training data but poorly on unseen data may be overfitting.
+
+## 4. What is Overfitting?
+
+Overfitting occurs when a model learns the training data too closely, including noise and irrelevant details. As a result, it may perform poorly on new data.
+
+Overfitting can be reduced through regularization, cross-validation, feature selection, and collecting more representative training data.
+
+## 5. Model Evaluation
+
+Classification models can be evaluated using accuracy, precision, recall, and the F1-score.
+
+Accuracy measures the proportion of all predictions that are correct.
+
+Precision measures the proportion of predicted positive cases that are actually positive.
+
+Recall measures the proportion of actual positive cases that the model correctly identifies.
+
+The F1-score is the harmonic mean of precision and recall.
+
+For regression tasks, common evaluation metrics include Mean Absolute Error, Mean Squared Error, and Root Mean Squared Error.
+
+## 6. Applications of Machine Learning
+
+Machine learning is used in healthcare for assisting medical image analysis, in banking for fraud detection, in e-commerce for product recommendations, and in transportation for route prediction.
+
+It is also used in natural language processing, speech recognition, computer vision, and predictive maintenance.
+
+## 7. Important Summary
+
+Machine learning enables systems to learn patterns from data. Supervised learning uses labelled data, unsupervised learning discovers patterns in unlabelled data, and reinforcement learning learns through rewards and penalties.
+
+Training data teaches a model, while testing data measures its generalization. Overfitting occurs when a model fails to generalize well to unseen examples. Appropriate evaluation metrics help assess model performance.

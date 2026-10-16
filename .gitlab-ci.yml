@@ -1,0 +1,18 @@
+
+image: python:3.11
+
+stages:
+  - test
+
+before_script:
+  - python --version
+  - pip install --upgrade pip
+  - pip install -r requirements.txt
+
+unit_tests:
+  stage: test
+  script:
+    - python -m pytest evals tests -v
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
