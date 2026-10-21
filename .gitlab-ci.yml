@@ -1,11 +1,10 @@
 
 stages:
   - test
-  - secret-detection
 
 include:
-  - template: Security/SAST.gitlab-ci.yml
-  - template: Security/Secret-Detection.gitlab-ci.yml
+  - template: Jobs/SAST.gitlab-ci.yml
+  - template: Jobs/Secret-Detection.gitlab-ci.yml
 
 variables:
   SECRET_DETECTION_ENABLED: "true"
@@ -19,10 +18,3 @@ python_tests:
     - python -m pip install -r requirements.txt
   script:
     - python -m pytest evals tests -v
-
-sast:
-  stage: test
-
-secret_detection:
-  stage: secret-detection
-
