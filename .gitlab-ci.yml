@@ -12,6 +12,9 @@ variables:
 python_tests:
   image: python:3.11
   stage: test
+  tags:
+    - medha
+    - windows
   before_script:
     - python --version
     - python -m pip install --upgrade pip
