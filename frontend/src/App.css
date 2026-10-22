@@ -576,3 +576,64 @@ h1, h2, h3, p { margin-top: 0; }
   .feature-card p { min-height: 0; }
   .footer { flex-direction: column; }
 }
+/* Chat evidence, citations and loading */
+
+.message.error { background: #FFF0F0; border: 1px solid #F3B7B7; }
+.message.error > span { color: #B42318; }
+
+.evidence-status {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.evidence-status.found { background: var(--turquoise-light); color: #0B6B66; }
+.evidence-status.missing { background: var(--pink-light); color: #A3306A; }
+
+.citation-list { margin-top: 10px; display: grid; gap: 8px; }
+
+.citation-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--turquoise);
+  border-radius: 8px;
+  padding: 9px 10px;
+}
+
+.citation-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.citation-source { font-size: 10px; font-weight: 700; color: var(--navy); overflow-wrap: anywhere; }
+.citation-score { font-size: 9px; color: var(--purple-hover); background: var(--purple-light); padding: 1px 7px; border-radius: 999px; }
+
+.citation-text {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #3A4A63;
+  font-style: italic;
+  overflow-wrap: anywhere;
+}
+
+.loading-message {
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  background: var(--lavender-mist);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.question-form button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  background: var(--purple);
+}
