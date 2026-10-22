@@ -7,6 +7,8 @@ __pycache__/
 .env
 .env.*
 !.env.example
+# Local SQLite document database (created at runtime, never committed)
+data/
 *.db
 *.sqlite
 *.sqlite3

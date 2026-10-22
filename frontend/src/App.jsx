@@ -1,67 +1,225 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import './App.css'
 
-const features = [
-  { icon: '📚', title: 'My Knowledge', description: 'Your notes, organized and searchable', value: '0 documents' },
-  { icon: '🧠', title: 'Smart Memory', description: 'Find facts without unnecessary AI calls', value: 'Ready to learn' },
-  { icon: '🛡️', title: 'Private by Design', description: 'Built for local-first document processing', value: 'Privacy first' },
+// ---------------------------------------------------------------------------
+// Feature-card data (document count is filled in dynamically)
+// ---------------------------------------------------------------------------
+const BASE_FEATURES = [
+  {
+    icon: '📚',
+    title: 'My Knowledge',
+    description: 'Your study materials, all in one place.',
+    valueKey: 'docs',       // replaced at render time
+  },
+  {
+    icon: '🧠',
+    title: 'Smart Memory',
+    description: 'Find passages across all your notes instantly.',
+    value: 'Ready to search',
+  },
+  {
+    icon: '🛡️',
+    title: 'Stays on your device',
+    description: 'Everything runs locally — nothing leaves your computer.',
+    value: 'Private by design',
+  },
 ]
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function formatSize(bytes) {
+  if (!bytes) return ''
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+// ---------------------------------------------------------------------------
+// App
+// ---------------------------------------------------------------------------
 
 function App() {
   const [question, setQuestion] = useState('')
   const [documents, setDocuments] = useState([])
+  const [docsLoading, setDocsLoading] = useState(true)
+  const [docsError, setDocsError] = useState(null)
   const [messages, setMessages] = useState([])
+  const [isLoading, setIsLoading] = useState(false)
+  const chatBottomRef = useRef(null)
 
- async function handleUpload(event) {
-  const files = Array.from(event.target.files || [])
-  event.target.value = ''
+  // -------------------------------------------------------------------------
+  // Feature A + B: load saved documents on mount
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    async function fetchDocuments() {
+      try {
+        const response = await fetch('http://localhost:8000/api/documents')
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const data = await response.json()
+        setDocuments(Array.isArray(data.documents) ? data.documents : [])
+      } catch {
+        setDocsError('Could not load your saved documents. Is the Medha backend running?')
+      } finally {
+        setDocsLoading(false)
+      }
+    }
+    fetchDocuments()
+  }, [])
 
-  for (const file of files) {
-    const formData = new FormData()
-    formData.append('file', file)
+  // Auto-scroll chat to latest message
+  useEffect(() => {
+    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, isLoading])
+
+  // -------------------------------------------------------------------------
+  // Upload handler
+  // -------------------------------------------------------------------------
+  async function handleUpload(event) {
+    const files = Array.from(event.target.files || [])
+    event.target.value = ''
+
+    for (const file of files) {
+      const formData = new FormData()
+      formData.append('file', file)
+
+      try {
+        const response = await fetch('http://localhost:8000/api/documents', {
+          method: 'POST',
+          body: formData,
+        })
+
+        const result = await response.json()
+
+        if (!response.ok) {
+          throw new Error(result.detail || 'Upload failed')
+        }
+
+        setDocuments((current) => [
+          ...current,
+          {
+            name: result.name,
+            size_bytes: result.size_bytes ?? file.size,
+            id: result.id,
+            pages: result.pages,
+            status: result.status,
+          },
+        ])
+      } catch (error) {
+        alert(`Could not upload ${file.name}: ${error.message}`)
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Chat handler
+  // -------------------------------------------------------------------------
+  async function handleAsk(event) {
+    event.preventDefault()
+    const trimmedQuestion = question.trim()
+    if (!trimmedQuestion || isLoading) return
+
+    setMessages((current) => [...current, { role: 'user', text: trimmedQuestion }])
+    setQuestion('')
+    setIsLoading(true)
 
     try {
-      const response = await fetch('http://localhost:8000/api/documents', {
+      const response = await fetch('http://localhost:8000/api/ask', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: trimmedQuestion }),
       })
 
-      const result = await response.json()
-
-      if (!response.ok) {
-        throw new Error(result.detail || 'Upload failed')
+      let data = null
+      try {
+        data = await response.json()
+      } catch {
+        data = null
       }
 
-      setDocuments((current) => [
+      if (!response.ok) {
+        const detail = data && typeof data.detail === 'string' ? data.detail : null
+        throw new Error(detail || `The server returned an error (HTTP ${response.status}).`)
+      }
+
+      if (!data || typeof data.answer !== 'string') {
+        throw new Error('Medha received an unexpected response. Please try again.')
+      }
+
+      setMessages((current) => [
         ...current,
         {
-          name: result.name,
-          size: file.size,
-          id: result.id,
-          pages: result.pages,
-          status: result.status,
+          role: 'assistant',
+          text: data.answer,
+          grounded: data.grounded === true,
+          method: data.method,
+          citations: Array.isArray(data.citations) ? data.citations : [],
         },
       ])
     } catch (error) {
-      alert(`Could not upload ${file.name}: ${error.message}`)
+      const isNetworkError = error instanceof TypeError
+      setMessages((current) => [
+        ...current,
+        {
+          role: 'assistant',
+          isError: true,
+          text: isNetworkError
+            ? 'Could not reach Medha. Please check that the backend is running on http://localhost:8000.'
+            : error.message,
+        },
+      ])
+    } finally {
+      setIsLoading(false)
     }
   }
-}
 
-  function handleAsk(event) {
-    event.preventDefault()
-    if (!question.trim()) return
+  // -------------------------------------------------------------------------
+  // Render helpers
+  // -------------------------------------------------------------------------
 
-    setMessages((current) => [
-      ...current,
-      { role: 'user', text: question.trim() },
-      {
-        role: 'assistant',
-        text: 'Your study assistant is being set up. Connect the Medha backend to retrieve evidence and generate answers from your documents.',
-      },
-    ])
-    setQuestion('')
+  function renderDocumentList() {
+    if (docsLoading) {
+      return (
+        <div className="empty-state">
+          <span>⏳</span>
+          <p>Loading your library…</p>
+        </div>
+      )
+    }
+    if (docsError) {
+      return (
+        <div className="empty-state error-state">
+          <span>⚠️</span>
+          <p>{docsError}</p>
+        </div>
+      )
+    }
+    if (documents.length === 0) {
+      return (
+        <div className="empty-state">
+          <span>▤</span>
+          <p>Your knowledge vault is waiting.</p>
+          <small>Upload a document to get started.</small>
+        </div>
+      )
+    }
+    return documents.map((document, index) => (
+      <div className="document-row" key={document.id || `${document.name}-${index}`}>
+        <span className="file-icon">▤</span>
+        <div className="document-info">
+          <strong>{document.name}</strong>
+          <small>
+            {formatSize(document.size_bytes ?? document.size)}
+            {document.pages != null && ` · ${document.pages} page${document.pages !== 1 ? 's' : ''}`}
+            {document.status && ` · ${document.status}`}
+          </small>
+        </div>
+      </div>
+    ))
   }
+
+  const docCount = documents.length
 
   return (
     <main className="app-shell">
@@ -74,13 +232,13 @@ function App() {
         <p className="nav-label">WORKSPACE</p>
         <a className="nav-item active" href="#home">⌂ <span>Overview</span></a>
         <a className="nav-item" href="#knowledge">▤ <span>My knowledge</span></a>
-        <a className="nav-item" href="#assistant">✳ <span>AI assistant</span></a>
+        <a className="nav-item" href="#assistant">✳ <span>Ask Medha</span></a>
 
         <div className="sidebar-bottom">
           <div className="privacy-card">
             <span>◈</span>
-            <strong>Your knowledge, your control.</strong>
-            <p>Designed with privacy at its core.</p>
+            <strong>Your knowledge, your device.</strong>
+            <p>Notes stay on your computer — not in the cloud.</p>
           </div>
           <span className="version">MEDHA AI · EARLY ACCESS</span>
         </div>
@@ -89,76 +247,67 @@ function App() {
       <section className="main-content" id="home">
         <header className="topbar">
           <span className="breadcrumb">Workspace / <strong>Overview</strong></span>
-          <span className="local-status"><span className="status-dot" /> Local-first design</span>
+          <span className="local-status"><span className="status-dot" /> Runs locally</span>
         </header>
 
         <div className="content-wrap">
           <section className="welcome">
-            <span className="eyebrow">YOUR PERSONAL KNOWLEDGE SPACE</span>
+            <span className="eyebrow">YOUR PERSONAL STUDY SPACE</span>
             <h1>Your mind, <span>with more room.</span></h1>
             <p>Bring your study material together. Find what matters. Learn at your own pace.</p>
           </section>
 
           <section className="feature-grid">
-            {features.map((feature) => (
+            {BASE_FEATURES.map((feature) => (
               <article className="feature-card" key={feature.title}>
                 <div className="feature-icon">{feature.icon}</div>
                 <h2>{feature.title}</h2>
                 <p>{feature.description}</p>
-                <span className="feature-value">{feature.value}</span>
+                <span className="feature-value">
+                  {feature.valueKey === 'docs'
+                    ? `${docCount} document${docCount !== 1 ? 's' : ''}`
+                    : feature.value}
+                </span>
               </article>
             ))}
           </section>
 
           <section className="workspace-grid">
+            {/* ---- Knowledge Vault ---- */}
             <article className="panel knowledge-panel" id="knowledge">
               <div className="panel-heading">
                 <div>
                   <span className="section-kicker">YOUR LIBRARY</span>
                   <h2>Knowledge vault</h2>
                 </div>
-                <span className="count-badge">{documents.length}</span>
+                <span className="count-badge">{docCount}</span>
               </div>
 
-              <label className="upload-zone">
+              <label className="upload-zone" id="upload-zone">
                 <span className="upload-icon">↑</span>
                 <strong>Add your study materials</strong>
-                <span>Choose PDF, TXT, or other study files</span>
+                <span>PDF, TXT or MD · up to 75 MB each</span>
                 <span className="upload-button">Choose files</span>
                 <input
-                    type="file"
-                    accept=".pdf,.txt,.md"
-                    multiple
-                    onChange={handleUpload}
-                  />
+                  type="file"
+                  accept=".pdf,.txt,.md"
+                  multiple
+                  onChange={handleUpload}
+                  id="file-input"
+                />
               </label>
 
               <div className="document-list">
-                {documents.length === 0 ? (
-                  <div className="empty-state">
-                    <span>▤</span>
-                    <p>Your knowledge vault is waiting.</p>
-                    <small>Add a document to get started.</small>
-                  </div>
-                ) : documents.map((document, index) => (
-                  <div className="document-row" key={`${document.name}-${index}`}>
-                    <span className="file-icon">▤</span>
-                    <div className="document-info">
-                      <strong>{document.name}</strong>
-                      <small>{(document.size / 1024).toFixed(1)} KB · {document.pages} page(s) · {document.status}
-                        </small>
-                    </div>
-                  </div>
-                ))}
+                {renderDocumentList()}
               </div>
-              <p className="disclaimer">Prototype: selecting files does not upload, parse, or index them yet.</p>
             </article>
 
+            {/* ---- Ask Medha ---- */}
             <article className="panel assistant-panel" id="assistant">
               <div className="panel-heading">
                 <div>
-                  <span className="section-kicker">SYSTEM 1 → SYSTEM 2</span>
-                  <h2>Ask your memory</h2>
+                  <span className="section-kicker">STUDY ASSISTANT</span>
+                  <h2>Ask your notes</h2>
                 </div>
                 <span className="ai-orb">✳</span>
               </div>
@@ -168,26 +317,67 @@ function App() {
                   <div className="chat-empty">
                     <div className="chat-illustration">✳</div>
                     <h3>Curiosity starts here.</h3>
-                    <p>Ask a question about your notes. Evidence-backed answers will be available once retrieval is connected.</p>
+                    <p>Ask anything about your notes.</p>
                   </div>
                 ) : messages.map((message, index) => (
-                  <div className={`message ${message.role}`} key={index}>
+                  <div
+                    className={`message ${message.role}${message.isError ? ' error' : ''}`}
+                    key={index}
+                  >
                     <span>{message.role === 'user' ? 'You' : 'Medha'}</span>
+                    {message.role === 'assistant' && !message.isError && (
+                      <span className={`evidence-status ${message.grounded ? 'found' : 'missing'}`}>
+                        {message.grounded ? '✓ Found in your notes' : '! Not enough information'}
+                      </span>
+                    )}
                     <p>{message.text}</p>
+                    {message.citations && message.citations.length > 0 && (
+                      <div className="citation-list">
+                        {message.citations.map((citation, citationIndex) => (
+                          <div className="citation-card" key={citationIndex}>
+                            <div className="citation-header">
+                              <span className="citation-source">
+                                {citation.document ?? 'Unknown document'}
+                                {citation.page != null && ` · Page ${citation.page}`}
+                              </span>
+                              {typeof citation.relevance === 'number' && (
+                                <span className="citation-score">
+                                  Match {citation.relevance.toFixed(2)}
+                                </span>
+                              )}
+                            </div>
+                            <blockquote className="citation-text">{citation.text}</blockquote>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
+                {isLoading && (
+                  <div className="loading-message" role="status">
+                    Searching your notes…
+                  </div>
+                )}
+                <div ref={chatBottomRef} />
               </div>
 
-              <form className="question-form" onSubmit={handleAsk}>
+              <form className="question-form" onSubmit={handleAsk} id="question-form">
                 <input
+                  id="question-input"
                   value={question}
                   onChange={(event) => setQuestion(event.target.value)}
-                  placeholder="Ask something about your studies..."
+                  placeholder="Ask something about your studies…"
                   aria-label="Ask Medha a question"
                 />
-                <button type="submit" aria-label="Send question">↑</button>
+                <button
+                  id="send-button"
+                  type="submit"
+                  aria-label="Send question"
+                  disabled={isLoading || !question.trim()}
+                >
+                  ↑
+                </button>
               </form>
-              <p className="chat-note">Answers will be connected to your sources in the next stage.</p>
             </article>
           </section>
 
