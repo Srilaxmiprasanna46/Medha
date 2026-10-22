@@ -9,7 +9,7 @@ const BASE_FEATURES = [
     icon: '📚',
     title: 'My Knowledge',
     description: 'Your study materials, all in one place.',
-    valueKey: 'docs',       // replaced at render time
+    valueKey: 'docs',
   },
   {
     icon: '🧠',
@@ -50,7 +50,7 @@ function App() {
   const chatBottomRef = useRef(null)
 
   // -------------------------------------------------------------------------
-  // Feature A + B: load saved documents on mount
+  // Load saved documents on mount (Phase 2 — persistence)
   // -------------------------------------------------------------------------
   useEffect(() => {
     async function fetchDocuments() {
@@ -219,6 +219,64 @@ function App() {
     ))
   }
 
+  function renderMessage(message, index) {
+    const isAssistant = message.role === 'assistant'
+    const hasAdditional = isAssistant && !message.isError &&
+      Array.isArray(message.citations) && message.citations.length > 0
+
+    return (
+      <div
+        className={`message ${message.role}${message.isError ? ' error' : ''}`}
+        key={index}
+      >
+        <span>{message.role === 'user' ? 'You' : 'Medha'}</span>
+
+        {isAssistant && !message.isError && (
+          <span className={`evidence-status ${message.grounded ? 'found' : 'missing'}`}>
+            {message.grounded ? '✓ Found in your notes' : '! Not enough information'}
+          </span>
+        )}
+
+        {/* Phase 3: answer text IS the passage — render it as a readable block */}
+        {isAssistant && !message.isError && message.grounded ? (
+          <blockquote className="answer-passage">{message.text}</blockquote>
+        ) : (
+          <p>{message.text}</p>
+        )}
+
+        {/* Additional supporting citations */}
+        {hasAdditional && (
+          <div className="citation-list">
+            <p className="citations-label">More from your notes</p>
+            {message.citations.map((citation, citationIndex) => (
+              <div className="citation-card" key={citationIndex}>
+                <div className="citation-header">
+                  <span className="citation-source">
+                    {citation.document ?? 'Unknown document'}
+                    {citation.page != null && ` · Page ${citation.page}`}
+                  </span>
+                  {typeof citation.relevance === 'number' && (
+                    <span className="citation-score">
+                      {(citation.relevance * 100).toFixed(0)}% match
+                    </span>
+                  )}
+                </div>
+                <blockquote className="citation-text">{citation.text}</blockquote>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Source attribution for the primary answer */}
+        {isAssistant && !message.isError && message.grounded && (
+          <p className="answer-source-hint">
+            From your uploaded notes · passage retrieved by keyword match
+          </p>
+        )}
+      </div>
+    )
+  }
+
   const docCount = documents.length
 
   return (
@@ -319,40 +377,7 @@ function App() {
                     <h3>Curiosity starts here.</h3>
                     <p>Ask anything about your notes.</p>
                   </div>
-                ) : messages.map((message, index) => (
-                  <div
-                    className={`message ${message.role}${message.isError ? ' error' : ''}`}
-                    key={index}
-                  >
-                    <span>{message.role === 'user' ? 'You' : 'Medha'}</span>
-                    {message.role === 'assistant' && !message.isError && (
-                      <span className={`evidence-status ${message.grounded ? 'found' : 'missing'}`}>
-                        {message.grounded ? '✓ Found in your notes' : '! Not enough information'}
-                      </span>
-                    )}
-                    <p>{message.text}</p>
-                    {message.citations && message.citations.length > 0 && (
-                      <div className="citation-list">
-                        {message.citations.map((citation, citationIndex) => (
-                          <div className="citation-card" key={citationIndex}>
-                            <div className="citation-header">
-                              <span className="citation-source">
-                                {citation.document ?? 'Unknown document'}
-                                {citation.page != null && ` · Page ${citation.page}`}
-                              </span>
-                              {typeof citation.relevance === 'number' && (
-                                <span className="citation-score">
-                                  Match {citation.relevance.toFixed(2)}
-                                </span>
-                              )}
-                            </div>
-                            <blockquote className="citation-text">{citation.text}</blockquote>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
+                ) : messages.map((message, index) => renderMessage(message, index))}
                 {isLoading && (
                   <div className="loading-message" role="status">
                     Searching your notes…

@@ -189,7 +189,10 @@ def test_ask_no_documents_returns_not_grounded():
     assert data["citations"] == []
 
 
-def test_ask_after_upload_returns_citations():
+def test_ask_after_upload_returns_grounded_answer():
+    """Phase 3: the primary answer IS the best passage.  The citations list
+    holds additional supporting passages (may be empty for short documents).
+    The answer text must contain the matched content."""
     _upload_sample()
 
     response = client.post("/api/ask", json={"question": "What is overfitting?"})
@@ -197,12 +200,10 @@ def test_ask_after_upload_returns_citations():
 
     data = response.json()
     assert data["grounded"] is True
-    assert len(data["citations"]) > 0
-    citation = data["citations"][0]
-    assert citation["document"] == "test_notes.txt"
-    assert isinstance(citation["page"], int)
-    assert isinstance(citation["relevance"], float)
-    assert isinstance(citation["text"], str)
+    # The answer should be the actual passage text, containing the key term.
+    assert "overfitting" in data["answer"].lower() or "performance" in data["answer"].lower()
+    # citations is a list (may be empty if only one passage matched)
+    assert isinstance(data["citations"], list)
 
 
 # ---------------------------------------------------------------------------
@@ -252,7 +253,8 @@ def test_restored_document_queryable_via_ask(tmp_path):
     assert response.status_code == 200
     data = response.json()
     assert data["grounded"] is True
-    assert any("overfitting" in c["text"].lower() for c in data["citations"])
+    # Phase 3: answer IS the best passage; check it contains the topic.
+    assert "overfitting" in data["answer"].lower() or "performance" in data["answer"].lower()
 
     store2.close()
 

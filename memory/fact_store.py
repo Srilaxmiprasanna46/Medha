@@ -1,6 +1,22 @@
+"""
+FactStore — in-memory passage index for Medha AI.
+
+Phase 3 changes (retrieval quality)
+------------------------------------
+* ``add_document`` now uses ``passage_chunker.chunk_page`` instead of a
+  raw newline/sentence split.  This means PDF-style broken lines are
+  rejoined into meaningful paragraphs before indexing.
+* The minimum token threshold has been raised to match the chunker's
+  MIN_TOKENS constant so that headings and short fragments are excluded at
+  the indexing step, not just at query time.
+* Everything else (``Fact`` dataclass, ``tokenize``, ``lookup``, ``clear``,
+  ``__len__``) is unchanged.
+"""
 
 import re
 from dataclasses import dataclass, asdict
+
+from memory.passage_chunker import chunk_page, MIN_TOKENS
 
 STOP_WORDS = {
     "the", "is", "a", "an", "and", "or", "of", "to", "in",
@@ -31,24 +47,31 @@ class FactStore:
         self._facts: list[Fact] = []
 
     def add_document(self, document: str, pages: list[dict]) -> int:
+        """Index a document's pages into searchable passages.
+
+        Each page's raw text is run through the passage chunker, which
+        rejoins PDF broken lines and splits the result into paragraph-level
+        (or sentence-window) passages.  Only passages with at least
+        MIN_TOKENS meaningful tokens are stored.
+        """
         added = 0
 
         for page in pages:
             text = page.get("text", "")
             page_number = page.get("page", 1)
 
-            for sentence in re.split(r"(?<=[.!?])\s+|\n+", text):
-                sentence = sentence.strip()
-                terms = tokenize(sentence)
-
-                if len(terms) < 3:
+            for passage in chunk_page(text, page_number):
+                terms = tokenize(passage.text)
+                # chunk_page already enforces MIN_TOKENS, but double-check
+                # here in case callers construct Passage objects directly.
+                if len(terms) < MIN_TOKENS:
                     continue
 
                 self._facts.append(
                     Fact(
-                        text=sentence,
+                        text=passage.text,
                         document=document,
-                        page=page_number,
+                        page=passage.page,
                         terms=sorted(terms),
                     )
                 )
@@ -57,6 +80,11 @@ class FactStore:
         return added
 
     def lookup(self, question: str, limit: int = 3) -> list[dict]:
+        """Return up to *limit* facts most relevant to *question*.
+
+        Scoring is unchanged from Phase 2: 0.7 × coverage + 0.3 × precision,
+        with a penalty for passages with fewer than 5 distinct terms.
+        """
         query_terms = tokenize(question)
 
         if not query_terms:
@@ -87,7 +115,7 @@ class FactStore:
             key=lambda item: item["relevance"],
             reverse=True,
         )
-        return results[:max(0, limit)]
+        return results[: max(0, limit)]
 
     def clear(self):
         self._facts.clear()

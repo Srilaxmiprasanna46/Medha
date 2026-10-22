@@ -21,7 +21,10 @@ def make_store():
 
 def test_add_document_stores_sentences():
     store = make_store()
-    assert len(store) == 3
+    # Phase 3: the chunker groups the three consecutive sentences into one
+    # paragraph-level passage (they share no blank-line separator), so the
+    # FactStore contains 1 passage, not 3.
+    assert len(store) == 1
 
 
 def test_lookup_returns_relevant_fact_and_citation():

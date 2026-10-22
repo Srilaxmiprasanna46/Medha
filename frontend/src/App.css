@@ -576,3 +576,45 @@ h1, h2, h3, p { margin-top: 0; }
   .feature-card p { min-height: 0; }
   .footer { flex-direction: column; }
 }
+
+/* ---------------------------------------------------------------------------
+   Phase 3 — Answer passage and citation styles
+   --------------------------------------------------------------------------- */
+
+/* Primary extractive answer – the passage text itself */
+.answer-passage {
+  margin: 8px 0 6px;
+  padding: 10px 14px;
+  border-left: 3px solid var(--turquoise);
+  border-radius: 0 8px 8px 0;
+  background: var(--turquoise-light);
+  font-size: 12px;
+  line-height: 1.75;
+  color: #1a3a4a;
+  font-style: normal;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* "More from your notes" label above additional citations */
+.citations-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin: 10px 0 6px;
+}
+
+/* Subtle attribution line below the primary answer */
+.answer-source-hint {
+  font-size: 9px;
+  color: #A8B4C5;
+  line-height: 1.5;
+  margin: 4px 0 0;
+  font-style: italic;
+}
+
+/* Error state in the document list */
+.empty-state.error-state > span { color: #C85C5C; }
+.empty-state.error-state p { color: #A04040; }
