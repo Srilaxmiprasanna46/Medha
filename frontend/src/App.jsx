@@ -11,6 +11,7 @@ function App() {
   const [question, setQuestion] = useState('')
   const [documents, setDocuments] = useState([])
   const [messages, setMessages] = useState([])
+  const [isLoading, setIsLoading] = useState(false)
 
  async function handleUpload(event) {
   const files = Array.from(event.target.files || [])
@@ -48,19 +49,63 @@ function App() {
   }
 }
 
-  function handleAsk(event) {
+  async function handleAsk(event) {
     event.preventDefault()
-    if (!question.trim()) return
+    const trimmedQuestion = question.trim()
+    if (!trimmedQuestion || isLoading) return
 
-    setMessages((current) => [
-      ...current,
-      { role: 'user', text: question.trim() },
-      {
-        role: 'assistant',
-        text: 'Your study assistant is being set up. Connect the Medha backend to retrieve evidence and generate answers from your documents.',
-      },
-    ])
+    setMessages((current) => [...current, { role: 'user', text: trimmedQuestion }])
     setQuestion('')
+    setIsLoading(true)
+
+    try {
+      const response = await fetch('http://localhost:8000/api/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: trimmedQuestion }),
+      })
+
+      let data = null
+      try {
+        data = await response.json()
+      } catch {
+        data = null
+      }
+
+      if (!response.ok) {
+        const detail = data && typeof data.detail === 'string' ? data.detail : null
+        throw new Error(detail || `The server returned an error (HTTP ${response.status}).`)
+      }
+
+      if (!data || typeof data.answer !== 'string') {
+        throw new Error('The server sent a response that Medha could not understand.')
+      }
+
+      setMessages((current) => [
+        ...current,
+        {
+          role: 'assistant',
+          text: data.answer,
+          grounded: data.grounded === true,
+          method: data.method,
+          citations: Array.isArray(data.citations) ? data.citations : [],
+        },
+      ])
+    } catch (error) {
+      const isNetworkError = error instanceof TypeError
+      setMessages((current) => [
+        ...current,
+        {
+          role: 'assistant',
+          isError: true,
+          text: isNetworkError
+            ? 'Could not reach the Medha backend. Please check that it is running on http://localhost:8000.'
+            : error.message,
+        },
+      ])
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -151,7 +196,7 @@ function App() {
                   </div>
                 ))}
               </div>
-              <p className="disclaimer">Prototype: selecting files does not upload, parse, or index them yet.</p>
+              <p className="disclaimer">Files are sent to your local Medha backend and indexed in memory. They are lost when the backend restarts.</p>
             </article>
 
             <article className="panel assistant-panel" id="assistant">
@@ -168,14 +213,47 @@ function App() {
                   <div className="chat-empty">
                     <div className="chat-illustration">✳</div>
                     <h3>Curiosity starts here.</h3>
-                    <p>Ask a question about your notes. Evidence-backed answers will be available once retrieval is connected.</p>
+                    <p>Ask a question about your notes. Answers show the matching passages from your uploaded documents.</p>
                   </div>
                 ) : messages.map((message, index) => (
-                  <div className={`message ${message.role}`} key={index}>
+                  <div
+                    className={`message ${message.role}${message.isError ? ' error' : ''}`}
+                    key={index}
+                  >
                     <span>{message.role === 'user' ? 'You' : 'Medha'}</span>
+                    {message.role === 'assistant' && !message.isError && (
+                      <span className={`evidence-status ${message.grounded ? 'found' : 'missing'}`}>
+                        {message.grounded ? '✓ Evidence found' : '! Not enough evidence'}
+                      </span>
+                    )}
                     <p>{message.text}</p>
+                    {message.citations && message.citations.length > 0 && (
+                      <div className="citation-list">
+                        {message.citations.map((citation, citationIndex) => (
+                          <div className="citation-card" key={citationIndex}>
+                            <div className="citation-header">
+                              <span className="citation-source">
+                                {citation.document ?? 'Unknown document'}
+                                {citation.page != null && ` · Page ${citation.page}`}
+                              </span>
+                              {typeof citation.relevance === 'number' && (
+                                <span className="citation-score">
+                                  Keyword match {citation.relevance.toFixed(2)}
+                                </span>
+                              )}
+                            </div>
+                            <blockquote className="citation-text">{citation.text}</blockquote>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
+                {isLoading && (
+                  <div className="loading-message" role="status">
+                    Searching your documents…
+                  </div>
+                )}
               </div>
 
               <form className="question-form" onSubmit={handleAsk}>
@@ -185,9 +263,15 @@ function App() {
                   placeholder="Ask something about your studies..."
                   aria-label="Ask Medha a question"
                 />
-                <button type="submit" aria-label="Send question">↑</button>
+                <button
+                  type="submit"
+                  aria-label="Send question"
+                  disabled={isLoading || !question.trim()}
+                >
+                  ↑
+                </button>
               </form>
-              <p className="chat-note">Answers will be connected to your sources in the next stage.</p>
+              <p className="chat-note">Answers come from keyword matching on your uploaded documents. No AI model is used.</p>
             </article>
           </section>
 
