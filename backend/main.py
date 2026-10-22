@@ -278,17 +278,101 @@ def _phrase_bonus(query_tokens: set[str], query_text: str, passage_text: str) ->
     return len(matched) / len(query_bigrams)
 
 
-def _length_bonus(passage_text: str) -> float:
-    """Log-normalised bonus that rewards substantive passages.
+def _is_table_like(text: str) -> bool:
+    """Return True if the passage looks like extracted table content.
 
-    Returns a value in [0, 1].  A passage of ~200 tokens scores ~1.0;
-    shorter passages score lower; single-sentence snippets score near 0.
+    Tables in PDFs are often extracted with pipe ``|`` separators.
+    The chunker may rejoin rows into one long line, so we check both
+    the multi-line case (many pipe-containing lines) AND the single-line
+    case (many pipe characters total relative to word count).
     """
-    token_count = _count_meaningful_tokens(passage_text)
-    if token_count <= 0:
+    # --- multi-line table: many rows contain | ---
+    lines = [l for l in text.splitlines() if l.strip()]
+    if len(lines) >= 3:
+        pipe_lines = sum(1 for l in lines if l.count("|") >= 2)
+        if pipe_lines / len(lines) > 0.35:
+            return True
+        sep_lines = sum(1 for l in lines if re.match(r"^[-|+\s]{4,}$", l.strip()))
+        if sep_lines >= 1:
+            return True
+
+    # --- single/few-line case: chunker joined table rows together ---
+    # Count total pipe characters vs total word count.
+    pipe_count = text.count("|")
+    word_count = len(re.findall(r"\b[a-zA-Z0-9]+\b", text))
+    if word_count > 0 and pipe_count / word_count > 0.08:
+        return True
+
+    return False
+
+
+def _term_density(query_tokens: set[str], passage_text: str) -> float:
+    """Return how concentrated query terms are within the passage (0–1).
+
+    A passage where ~10 % of its words are query terms scores 1.0.
+    This rewards focused, on-topic passages and penalises long passages
+    (e.g., tables, appendices) where query terms appear incidentally among
+    many unrelated words.
+
+    Replaces the old ``_length_bonus`` which inadvertently rewarded bulk.
+    """
+    words = re.findall(r"\b[a-zA-Z0-9]+\b", passage_text.lower())
+    if not words:
         return 0.0
-    # log2(token_count) / log2(200) clamped to [0, 1]
-    return min(1.0, math.log2(max(1, token_count)) / math.log2(200))
+    hits = sum(1 for w in words if w in query_tokens)
+    if hits == 0:
+        return 0.0
+    # 10 % density = perfect score; linear, clamped at 1.0.
+    return min(1.0, (hits / len(words)) * 10)
+
+
+# Definition markers used by _definition_signal.
+_DEFINITION_MARKERS = (
+    "refers to",
+    "is defined as",
+    "can be defined as",
+    "is defined",
+    "is a type of",
+    "is the process",
+    "is a process",
+    "is an approach",
+    "is a method",
+    "is a technique",
+    "is characterized",
+    "is characterised",
+    "consists of",
+    "is used to describe",
+    "describes",
+    "means that",
+    "is essentially",
+    "is broadly defined",
+    "can be described as",
+)
+
+
+def _definition_signal(question: str, passage_text: str, query_tokens: set[str]) -> float:
+    """Return a 0–1 bonus for passages that explicitly define the queried concept.
+
+    Only active for *definition questions* — those matching the pattern
+    ``'What is/are X?'``.  The bonus is 0 for all other question types so
+    it does not interfere with 'How does X work?' or 'What are the types
+    of X?' questions.
+
+    Returns:
+        1.0  – passage contains a definition marker AND all query tokens.
+        0.4  – passage contains a definition marker but not all query tokens.
+        0.0  – not a definition question, or no definition marker found.
+    """
+    if not re.match(r"\bwhat\b.{0,15}\b(is|are)\b", question.lower()):
+        return 0.0
+
+    text_lower = passage_text.lower()
+    has_marker = any(m in text_lower for m in _DEFINITION_MARKERS)
+    if not has_marker:
+        return 0.0
+
+    query_present = all(t in text_lower for t in query_tokens)
+    return 1.0 if query_present else 0.4
 
 
 def _jaccard(a: set[str], b: set[str]) -> float:
@@ -321,22 +405,35 @@ def _deduplicate(
 
 def _score_passage(
     query: set[str],
-    query_text: str,
+    question: str,
     passage_text: str,
 ) -> float:
     """Compute a relevance score for a single passage.
 
-    Formula (all components in [0, 1]):
-        score = 0.60 * coverage
-              + 0.25 * phrase_bonus
-              + 0.15 * length_bonus
+    Formula (all components in [0, 1])::
 
-    Coverage: fraction of query terms found in the passage.
-    Phrase bonus: fraction of query bigrams found in the passage.
-    Length bonus: log-normalised passage length (rewards substance).
+        score = 0.55 * coverage
+              + 0.20 * phrase_bonus
+              + 0.15 * definition_signal
+              + 0.10 * term_density
 
-    Heading penalty: passages with fewer than 8 meaningful tokens have their
-    score halved, so they only win if nothing better matches.
+    coverage
+        Fraction of query terms found in the passage.  Primary driver.
+    phrase_bonus
+        Fraction of query bigrams that appear in the passage.
+    definition_signal
+        +1.0 when a 'What is X?' question matches a passage with an
+        explicit definition marker ('refers to', 'is defined as', …).
+        Zero for all other question types.
+    term_density
+        Concentration of query terms within the passage.  Rewards focused
+        passages; penalises tables and appendices where the same term
+        appears many times among unrelated words.
+
+    Structural penalties applied after the base score:
+        × 0.45  if the passage looks like a pipe-separated table.
+        × 0.40  if the passage has fewer than 8 meaningful tokens
+                (headings, labels, fragments).
     """
     passage_tokens = tokenize(passage_text)
     if not passage_tokens:
@@ -347,14 +444,18 @@ def _score_passage(
         return 0.0
 
     coverage = len(overlap) / len(query)
-    pb = _phrase_bonus(query, query_text, passage_text)
-    lb = _length_bonus(passage_text)
+    pb       = _phrase_bonus(query, question, passage_text)
+    ds       = _definition_signal(question, passage_text, query)
+    density  = _term_density(query, passage_text)
 
-    score = 0.60 * coverage + 0.25 * pb + 0.15 * lb
+    score = 0.55 * coverage + 0.20 * pb + 0.15 * ds + 0.10 * density
 
-    # Penalise very short passages (headings, labels, fragments).
-    if _count_meaningful_tokens(passage_text) < 8:
-        score *= 0.4
+    # Structural penalties — applied last so they cannot be undone by
+    # any of the additive bonuses above.
+    if _is_table_like(passage_text):
+        score *= 0.45          # tables contain incidental term repetition
+    elif _count_meaningful_tokens(passage_text) < 8:
+        score *= 0.40          # headings / fragment lines
 
     return score
 
@@ -435,8 +536,17 @@ def ask_question(request: AskRequest):
         }
 
     best = candidates[0]
-    # Supporting citations: up to _MAX_CITATIONS additional distinct passages.
-    supporting = candidates[1 : _MAX_CITATIONS + 1]
+    best_score = best["score"]
+
+    # Supporting citations: additional passages that score at least 60 % of
+    # the best passage.  This prevents tangentially-matching results (e.g.,
+    # a YARN page that mentions 'Big Data' in passing) from appearing after
+    # a strong definition answer.
+    _CITATION_THRESHOLD = max(_MIN_SCORE, best_score * 0.60)
+    supporting = [
+        c for c in candidates[1 : _MAX_CITATIONS + 1]
+        if c["score"] >= _CITATION_THRESHOLD
+    ]
 
     # The answer IS the best passage — extractive, not a generic intro.
     answer_text = best["text"]
